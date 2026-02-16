@@ -1,102 +1,82 @@
 ---
 name: opencontext
-description: Access project context — briefs, history, decisions, and progress for any project the user has worked on. Use proactively when historical context would help.
+description: Project knowledge and context for any workspace the user has worked on. Use when: (1) user mentions a project or wants to work on one — load its brief first, (2) starting a coding collaboration — understand the project before delegating to Claude Code, (3) user asks "what projects do I have" or "what's the status of X", (4) after completing work on a project — sync to update knowledge, (5) first-time setup — guide user through configuration. Requires the `oc` CLI (pip install opencontext).
+requires_bins: ["oc"]
 ---
 
-# OpenContext Skill
+# OpenContext
 
-OpenContext generates and maintains **Project Briefs** — auto-generated knowledge documents that capture what each project is, key decisions, current state, and recent progress. As an assistant, you use this to understand projects without manually exploring codebases.
+Project knowledge middleware. Generates and maintains **Project Briefs** —
+auto-generated knowledge documents per workspace.
 
-## Core Workflow: Brief First
+## Setup (First-Time)
 
-**Always start with the brief.** It gives you project understanding in seconds.
+Check if OpenContext is ready:
 
 ```bash
-# What projects exist?
-python3 ~/projects/opencontext/scripts/oc projects
-
-# Read a project's brief (the core document)
-python3 ~/projects/opencontext/scripts/oc brief /home/yu/projects/HaL
+oc setup --check
 ```
 
-Only drill down into sessions/turns when the brief doesn't have enough detail.
+If not initialized:
 
-## When to Use
-
-- **Starting work on a project** — read its brief first
-- **User references past work** — search for it
-- **Understanding why code is written a certain way** — briefs capture decisions
-- **Planning next steps** — check open threads in the brief
-- **Cross-project awareness** — `oc projects` shows everything
-
-## Commands
-
-### Level 0: Overview
 ```bash
-oc projects                          # List all projects with brief status
+oc setup --init
+oc setup --config api_key <USER_API_KEY>
+oc setup --config llm_model deepseek/deepseek-chat   # or any litellm model
+oc setup --discover    # see what projects are available
+oc sync                # import sessions and generate summaries
 ```
 
-### Level 1: Project Brief (primary)
+Minimum user input needed: API key + confirm project list.
+
+## Core Workflow
+
+### 1. Understand the Project (Read Brief)
+
 ```bash
-oc brief <workspace>                 # Read existing brief (cached)
-oc brief <workspace> --generate      # Force regenerate from sessions
-oc brief <workspace> --top 10        # Generate from top 10 sessions
+oc brief <workspace>
 ```
 
-### Level 2: Session List
+The brief tells you: what the project is, its architecture, key decisions,
+current state, and open threads. Read this before doing any work on a project.
+
+### 2. Delegate Tasks (with claude-collab)
+
+After reading the brief, you understand the project. Give Claude Code
+directional instructions:
+
+- What to do and in which project
+- 1-2 key anchors (architecture points, relevant modules)
+- Claude Code explores the code and plans on its own
+
+### 3. Update Knowledge (Sync)
+
+After work is completed:
+
 ```bash
-oc sessions --workspace <path>       # List sessions for a project
+oc sync --project <path>
+oc brief <workspace> --generate    # refresh the brief
 ```
 
-### Level 3: Session Detail
+## Quick Reference
+
 ```bash
-oc show <session_id>                 # Show all turns in a session
+oc projects                        # list all projects
+oc brief <workspace>               # read Project Brief
+oc brief <workspace> --generate    # regenerate brief
+oc brief <workspace> --json        # structured JSON output
+oc sync                            # import new sessions + summarize
+oc search <query>                  # cross-project search
+oc setup --check                   # environment status
 ```
 
-### Level 4: Search (cross-project)
-```bash
-oc search <query>                    # Search events + sessions + turns
-oc search <query> -t turn            # Search turn titles only
-oc search <query> -t content         # Deep search raw dialogue
-```
+## Fallbacks
 
-### Maintenance
-```bash
-oc sync                              # Import new sessions + summarize
-oc sync --no-llm                     # Import only (no LLM calls)
-oc status                            # Config and database diagnostics
-```
+- **Brief is empty** → project may have no sessions yet; suggest user works in that project first
+- **`oc` command fails** → run `oc setup --check` to diagnose; verify API key and DB state
+- **Brief is stale** → check the footer timestamp; use `--generate` to refresh
+- **No projects found** → run `oc setup --discover` then `oc sync`
 
-## Understanding the Brief
+## Details
 
-A Project Brief contains:
-
-| Section | What it tells you |
-|---------|-------------------|
-| Purpose & Value | What the project is and why it exists |
-| Architecture & Tech Stack | How it's built |
-| Key Decisions | Important choices with reasoning (chronological) |
-| Current State | What works, overall maturity |
-| Recent Progress | Latest work done |
-| Open Threads | Unfinished work, known issues |
-
-## Progressive Disclosure
-
-```
-oc projects          → quick scan of all projects
-    ↓ pick one
-oc brief <workspace> → full project understanding
-    ↓ need more detail
-oc sessions ...      → specific session list
-    ↓ drill down
-oc show <id>         → individual turns
-    ↓ raw search
-oc search <query>    → find specific topics
-```
-
-## Notes
-
-- **Briefs are cached** — first call generates, subsequent calls return cached
-- **Use `--generate` to refresh** a stale brief with latest sessions
-- **Local only** — all data in SQLite, no cloud dependency
-- **All commands output to stdout** — JSON for structured data, markdown for briefs
+For full CLI reference, see [commands.md](references/commands.md).

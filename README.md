@@ -1,6 +1,6 @@
 # OpenContext
 
-Project Knowledge Generator for AI Assistants (e.g., Your OpenClaw Bot, Digital Assistant, etc.)
+Project Knowledge Management for AI Assistants.
 
 OpenContext discovers and parses your Claude Code sessions, then synthesizes them into **Project Briefs** — auto-generated knowledge documents that capture what each project is, key decisions, current state, and recent progress.
 
@@ -8,28 +8,38 @@ OpenContext discovers and parses your Claude Code sessions, then synthesizes the
 
 Every time an AI assistant starts working with you, it knows nothing about your projects. OpenContext fixes this — it generates per-project knowledge documents so any assistant can instantly understand your project history, decisions, and current state.
 
+## Install
+
+```bash
+# Global install (recommended, makes `oc` available everywhere)
+uv tool install -e ~/projects/opencontext
+
+# Or in a virtualenv
+cd ~/projects/opencontext
+pip install -e .
+```
+
 ## Quick Start
 
 ```bash
-# Install
-cd ~/projects/opencontext
-pip install -e .
+# Guided setup — check environment, init, configure
+oc setup --check                    # what's the current state?
+oc setup --init                     # create config + DB
+oc setup --config api_key sk-...    # set your LLM API key
+oc setup --config llm_model deepseek/deepseek-chat
+oc setup --discover                 # see what projects are available
 
-# Initialize
-oc init
-
-# Edit config: set your LLM provider and API key
-vim ~/.opencontext/config.yaml
-
-# Import all sessions + generate summaries
+# Import sessions + generate summaries
 oc sync
 
 # See all your projects
 oc projects
 
-# Generate a Project Brief
+# Read a Project Brief
 oc brief /home/yu/projects/my-project
 ```
+
+Or let your AI assistant (e.g. OpenClaw) handle setup — the skill guides it through `oc setup` step by step.
 
 ## Configuration
 
@@ -45,13 +55,13 @@ Uses [litellm](https://github.com/BerriAI/litellm) — any provider works.
 
 | Command | Purpose |
 |---------|---------|
-| `oc init` | Initialize config and database |
+| `oc setup [--check\|--init\|--discover\|--config]` | Guided setup for agents and humans |
 | `oc sync` | Discover + import + summarize sessions |
 | `oc status` | Config and database diagnostics |
 | `oc projects` | List all projects with brief status |
 | `oc brief <workspace>` | Get or generate Project Brief |
 | `oc brief <ws> --generate` | Force regenerate brief |
-| `oc brief <ws> --top N` | Generate from top N sessions |
+| `oc brief <ws> --json` | Output brief as structured JSON |
 | `oc sessions` | List imported sessions |
 | `oc show <id>` | Show session with all turns |
 | `oc search <query>` | Search across all context |
@@ -88,13 +98,13 @@ oc search <query>    → cross-project search
 
 ## Agent Skill
 
-Install the skill for Claude Code:
+Install the skill for Claude Code or any agent:
 
 ```bash
 ln -s ~/projects/opencontext/opencontext-skill ~/.claude/skills/opencontext
 ```
 
-The skill teaches an AI assistant to use OpenContext's progressive disclosure workflow — brief first, drill down as needed.
+The skill is a behavior protocol — it teaches an AI assistant when and how to use OpenContext: load briefs before working on a project, sync after completing work, guide users through setup.
 
 ## Project Structure
 

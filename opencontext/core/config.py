@@ -110,6 +110,26 @@ class Config:
                 return env_var
         return None
 
+    @staticmethod
+    def set_config(key: str, value: str, path: Optional[str] = None) -> None:
+        """Set a single config key in the YAML file."""
+        config_path = Path(
+            path or os.getenv("OPENCONTEXT_CONFIG", _DEFAULT_CONFIG_PATH)
+        ).expanduser()
+
+        data: dict = {}
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    data = yaml.safe_load(f) or {}
+            except Exception:
+                pass
+
+        data[key] = value
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False)
+
     def check_api_key(self) -> Optional[str]:
         """Check if the required API key is available.
 

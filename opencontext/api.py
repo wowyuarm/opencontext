@@ -15,11 +15,14 @@ def init() -> Dict[str, Any]:
     """Initialize OpenContext: create config dir, default config, and database."""
     from .core.config import _DEFAULT_CONFIG_PATH, _DEFAULT_DB_PATH
     from pathlib import Path
+    import os
 
-    config_path = Path(_DEFAULT_CONFIG_PATH).expanduser()
+    config_path = Path(
+        os.getenv("OPENCONTEXT_CONFIG", _DEFAULT_CONFIG_PATH)
+    ).expanduser()
     results: Dict[str, Any] = {"created": [], "existing": []}
 
-    # 1. Create ~/.opencontext/
+    # 1. Create parent dir
     config_dir = config_path.parent
     if config_dir.exists():
         results["existing"].append(str(config_dir))
@@ -35,7 +38,9 @@ def init() -> Dict[str, Any]:
         results["created"].append(str(config_path))
 
     # 3. Initialize database
-    db_path = Path(_DEFAULT_DB_PATH).expanduser()
+    db_path = Path(
+        os.getenv("OPENCONTEXT_DB_PATH", _DEFAULT_DB_PATH)
+    ).expanduser()
     if db_path.exists():
         results["existing"].append(str(db_path))
     else:
@@ -43,6 +48,84 @@ def init() -> Dict[str, Any]:
         results["created"].append(str(db_path))
 
     return results
+
+
+# ── Setup ────────────────────────────────────────────────────────────────────
+
+def setup_check() -> Dict[str, Any]:
+    """Check environment state for setup guidance.
+
+    Returns JSON with: initialized, has_api_key, project_count, db_exists, etc.
+    """
+    from .core.config import Config, _DEFAULT_CONFIG_PATH, _DEFAULT_DB_PATH
+    from pathlib import Path
+    import os
+
+    config_path = Path(
+        os.getenv("OPENCONTEXT_CONFIG", _DEFAULT_CONFIG_PATH)
+    ).expanduser()
+    db_path = Path(
+        os.getenv("OPENCONTEXT_DB_PATH", _DEFAULT_DB_PATH)
+    ).expanduser()
+
+    result: Dict[str, Any] = {
+        "initialized": config_path.exists(),
+        "config_path": str(config_path),
+        "db_exists": db_path.exists(),
+        "db_path": str(db_path),
+    }
+
+    if config_path.exists():
+        cfg = Config.load()
+        result["llm_model"] = cfg.llm_model
+        result["has_api_key"] = cfg.check_api_key() is None
+        if not result["has_api_key"]:
+            result["api_key_error"] = cfg.check_api_key()
+    else:
+        result["has_api_key"] = False
+
+    # Count known projects
+    if db_path.exists():
+        try:
+            db = _db()
+            stats = db.stats()
+            result["project_count"] = stats.get("projects", 0)
+            result["session_count"] = stats.get("sessions", 0)
+        except Exception:
+            result["project_count"] = 0
+            result["session_count"] = 0
+    else:
+        result["project_count"] = 0
+        result["session_count"] = 0
+
+    return result
+
+
+def setup_discover() -> List[Dict[str, str]]:
+    """Scan common paths and return discoverable projects.
+
+    Groups session files by project path for a cleaner overview.
+    """
+    from .ingest.discovery import discover_sessions
+
+    sessions = discover_sessions()
+    # Group by project
+    projects_map: Dict[str, int] = {}
+    for s in sessions:
+        proj = s["project"]
+        projects_map[proj] = projects_map.get(proj, 0) + 1
+
+    return [
+        {"project": proj, "sessions": count}
+        for proj, count in sorted(projects_map.items())
+    ]
+
+
+def setup_config(key: str, value: str) -> Dict[str, str]:
+    """Set a config key-value pair."""
+    from .core.config import Config
+    Config.set_config(key, value)
+    return {"key": key, "value": value, "status": "ok"}
 
 
 _DEFAULT_CONFIG_TEMPLATE = """\
@@ -278,11 +361,17 @@ def sync(
             from .worker import process_jobs
             jobs_processed = process_jobs(max_jobs=max_jobs)
 
+    # Collect projects that had new data
+    projects_updated = set()
+    for item in found:
+        projects_updated.add(item["project"])
+
     return {
         "sessions_found": len(found),
         "turns_imported": imported_total,
         "turns_skipped": skipped_total,
         "jobs_processed": jobs_processed,
+        "projects_updated": sorted(projects_updated) if imported_total > 0 else [],
         "errors": errors,
     }
 

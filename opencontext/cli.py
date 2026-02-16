@@ -3,12 +3,14 @@
 oc — OpenContext CLI
 
 Usage:
+    oc setup [--check|--init|--discover|--config KEY VALUE]
     oc init                             Initialize config and database
     oc sync [--project PATH] [--no-llm] Discover + import + summarize
     oc status                           Config and database diagnostics
     oc projects                         List all projects with brief status
     oc brief <workspace> [--top N]      Get or generate Project Brief
     oc brief <workspace> --generate     Force regenerate brief
+    oc brief <workspace> --json         Output brief as structured JSON
     oc discover [--project PATH]        Find sessions on disk
     oc sessions [--workspace PATH]      List imported sessions
     oc show <session_id>                Show session details
@@ -28,6 +30,30 @@ import sys
 
 def _json_out(data):
     print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+
+
+def cmd_setup(args):
+    if "--check" in args:
+        from opencontext.api import setup_check
+        _json_out(setup_check())
+    elif "--discover" in args:
+        from opencontext.api import setup_discover
+        _json_out(setup_discover())
+    elif "--config" in args:
+        # oc setup --config KEY VALUE
+        idx = args.index("--config")
+        remaining = args[idx + 1:]
+        if len(remaining) < 2:
+            _err("Usage: oc setup --config KEY VALUE")
+        from opencontext.api import setup_config
+        _json_out(setup_config(remaining[0], remaining[1]))
+    elif "--init" in args:
+        from opencontext.api import init
+        _json_out(init())
+    else:
+        # Default: run --check
+        from opencontext.api import setup_check
+        _json_out(setup_check())
 
 
 def cmd_init(args):
@@ -56,6 +82,8 @@ def cmd_sync(args):
     )
     if result["jobs_processed"]:
         print(f"  summarized {result['jobs_processed']} jobs", file=sys.stderr)
+    if result.get("projects_updated"):
+        print(f"  projects with new data: {', '.join(result['projects_updated'])}", file=sys.stderr)
     for err in result.get("errors", []):
         print(f"  ! {err}", file=sys.stderr)
     _json_out(result)
@@ -103,12 +131,13 @@ def cmd_brief(args):
     from opencontext.api import brief
     positional = [a for a in args if not a.startswith("-")]
     if not positional:
-        _err("Usage: oc brief <workspace> [--top N] [--generate]")
+        _err("Usage: oc brief <workspace> [--top N] [--generate] [--json]")
 
     workspace = positional[0]
     top_n_str = _get_opt(args, "--top")
     top_n = int(top_n_str) if top_n_str else None
     generate = "--generate" in args
+    json_mode = "--json" in args
 
     # Force generation if --generate or --top given
     if generate and top_n is None:
@@ -118,11 +147,17 @@ def cmd_brief(args):
     result = brief(workspace, top_n=top_n)
 
     if "error" in result:
+        if json_mode:
+            _json_out(result)
+            sys.exit(1)
         _err(result["error"])
 
     print(f"  [{result.get('mode', '?')}] {result.get('path', '')}", file=sys.stderr)
-    # Output the brief content directly (markdown, not JSON)
-    print(result["content"])
+
+    if json_mode:
+        _json_out(result)
+    else:
+        print(result["content"])
 
 
 def cmd_discover(args):
@@ -189,6 +224,7 @@ def cmd_process(args):
 
 
 COMMANDS = {
+    "setup": cmd_setup,
     "init": cmd_init,
     "sync": cmd_sync,
     "status": cmd_status,
