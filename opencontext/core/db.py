@@ -12,7 +12,7 @@ import re
 import sqlite3
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -149,7 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, next_run_at);
 
 
 def _utcnow() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _regexp(pattern: str, value: str) -> bool:
@@ -628,11 +628,7 @@ class Database:
             return None
 
         # Lock it
-        lock_until = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        # Give 5 minutes lease
-        from datetime import timedelta
-
-        lock_until = (datetime.utcnow() + timedelta(minutes=5)).strftime(
+        lock_until = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime(
             "%Y-%m-%d %H:%M:%S"
         )
         conn.execute(
