@@ -436,3 +436,54 @@ def brief(
         }
 
     return {"workspace": workspace, "error": "No data available for this project"}
+
+
+def brief_status(workspace: str) -> Dict[str, Any]:
+    """Check brief freshness — sessions/turns since last generation.
+
+    Returns recommendation: "fresh", "stale", or "missing".
+    """
+    from .summarize.brief import brief_path, parse_brief_timestamp, read_brief
+
+    result: Dict[str, Any] = {"workspace": workspace}
+    bp = brief_path(workspace)
+    result["has_brief"] = bp.is_file()
+
+    if not bp.is_file():
+        # Check if project exists at all
+        db = _db()
+        sessions_list = db.list_sessions(workspace=workspace, limit=1)
+        result["recommendation"] = "missing"
+        result["sessions_total"] = len(db.list_sessions(workspace=workspace, limit=1000))
+        return result
+
+    # Parse timestamp from footer
+    ts = parse_brief_timestamp(workspace)
+    result["brief_generated_at"] = ts
+
+    if not ts:
+        # Brief exists but no parseable timestamp — treat as stale
+        result["recommendation"] = "stale"
+        return result
+
+    # Query sessions with activity after brief generation
+    db = _db()
+    conn = db._conn()
+    rows = conn.execute(
+        """SELECT id, title, total_turns, last_activity_at
+           FROM sessions
+           WHERE workspace = ? AND last_activity_at > ?
+           ORDER BY last_activity_at DESC""",
+        (workspace, ts),
+    ).fetchall()
+
+    new_sessions = len(rows)
+    new_turns = sum(r["total_turns"] or 0 for r in rows)
+    new_titles = [r["title"] or f"Session {r['id'][:8]}" for r in rows]
+
+    result["sessions_since_brief"] = new_sessions
+    result["turns_since_brief"] = new_turns
+    result["new_session_titles"] = new_titles
+    result["recommendation"] = "fresh" if new_sessions == 0 else "stale"
+
+    return result

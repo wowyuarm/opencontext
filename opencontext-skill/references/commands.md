@@ -20,6 +20,7 @@ oc brief <workspace>                # Read cached brief (markdown)
 oc brief <workspace> --generate     # Force regenerate from sessions
 oc brief <workspace> --top N        # Generate from top N sessions
 oc brief <workspace> --json         # Output as structured JSON (includes metadata)
+oc brief <workspace> --status       # Check brief freshness (JSON): recommendation, sessions/turns since brief
 ```
 
 ## Data Import

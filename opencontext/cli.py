@@ -11,6 +11,7 @@ Usage:
     oc brief <workspace> [--top N]      Get or generate Project Brief
     oc brief <workspace> --generate     Force regenerate brief
     oc brief <workspace> --json         Output brief as structured JSON
+    oc brief <workspace> --status       Check brief freshness (JSON)
     oc discover [--project PATH]        Find sessions on disk
     oc sessions [--workspace PATH]      List imported sessions
     oc show <session_id>                Show session details
@@ -128,12 +129,19 @@ def cmd_projects(args):
 
 
 def cmd_brief(args):
-    from opencontext.api import brief
     positional = [a for a in args if not a.startswith("-")]
     if not positional:
-        _err("Usage: oc brief <workspace> [--top N] [--generate] [--json]")
+        _err("Usage: oc brief <workspace> [--top N] [--generate] [--json] [--status]")
 
     workspace = positional[0]
+
+    # --status: freshness check
+    if "--status" in args:
+        from opencontext.api import brief_status
+        _json_out(brief_status(workspace))
+        return
+
+    from opencontext.api import brief
     top_n_str = _get_opt(args, "--top")
     top_n = int(top_n_str) if top_n_str else None
     generate = "--generate" in args
