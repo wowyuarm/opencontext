@@ -97,10 +97,10 @@ def extract_session_facts(
             entry["description"] = t.description[:300]
         # Always include user message (what was asked)
         if t.user_message:
-            entry["user"] = t.user_message[:500]
-        # Include assistant summary (what was done) — critical for understanding
+            entry["user"] = t.user_message
+        # Include assistant summary (what was done)
         if t.assistant_summary:
-            entry["assistant"] = t.assistant_summary[:500]
+            entry["assistant"] = t.assistant_summary
         # Include tool usage and file changes for richer context
         if t.tool_summary:
             try:
@@ -215,7 +215,9 @@ def synthesize_brief(
     user_content = _build_synthesis_input(project_name, docs, tech, extractions)
 
     logger.info("Synthesizing Project Brief...")
-    brief = call_llm_text("brief_synthesize", user_content)
+    # Scale max_tokens with input complexity
+    max_tokens = 4096 if len(extractions) <= 10 else 8192
+    brief = call_llm_text("brief_synthesize", user_content, max_tokens=max_tokens)
     if not brief:
         return None
 

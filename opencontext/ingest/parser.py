@@ -187,7 +187,7 @@ def _parse_claude(session_file: Path, *, since_turn: int = 0) -> List[ParsedTurn
         )
 
         # Backward-compatible summary from full text
-        assistant_summary = assistant_text[:2000] if assistant_text else ""
+        assistant_summary = assistant_text
 
         # Compute content hash from the JSONL lines in range
         raw_content = "\n".join(

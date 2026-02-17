@@ -24,40 +24,139 @@ logger = logging.getLogger(__name__)
 
 TASK_PROMPTS: Dict[str, str] = {
     "turn_summary": (
-        "You summarize a single coding conversation turn.\n"
-        "Given user messages, assistant replies, tool usage, and file changes, produce:\n"
-        "1. A concise TITLE (max 80 chars) describing what happened.\n"
-        "2. A short DESCRIPTION (1-3 sentences) of the work done.\n\n"
-        "If tools_used is provided, use it to understand WHAT was done (files read, edited, commands run).\n"
-        "If files_modified is provided, mention the key files that changed.\n\n"
-        "Output STRICT JSON only:\n"
-        '{"title": "string", "description": "string"}'
-    ),
-    "metadata": (
-        "You are a metadata classifier for AI-assisted coding sessions.\n"
-        "Determine two fields for the current turn:\n"
-        '1. "is_continuation": true if this turn continues, debugs, or fixes '
-        "the previous task. false if it is a new task.\n"
-        '2. "satisfaction": "good" when the user is clearly happy or moving on, '
-        '"fine" when progress is partial/mixed, "bad" when the user reports '
-        "failure or dissatisfaction.\n\n"
+        "You are summarizing a single turn in an AI-assisted coding session "
+        "(human developer + AI coding assistant working together).\n\n"
+        "You will receive a JSON object with:\n"
+        "- user_message: what the developer asked or instructed\n"
+        "- assistant_summary: the AI assistant's textual response\n"
+        "- tools_used (optional): tool calls made — Read/Edit/Write for file ops, "
+        "Bash for commands, Grep/Glob for search, Task for subagent delegation\n"
+        "- files_modified (optional): file paths that were edited or created\n\n"
+        "Produce a JSON object with these fields:\n"
+        "- title: concise action phrase (max 80 chars), e.g. \"Fix auth middleware token validation\"\n"
+        "- description: 1-3 sentences capturing what was done and why. "
+        "Mention specific files or commands if they clarify the work.\n"
+        "- is_continuation: true if this turn continues/debugs/fixes the PREVIOUS turn's task, "
+        "false if it starts a new topic\n"
+        "- satisfaction: \"good\" if user is clearly satisfied or moving forward, "
+        "\"fine\" if neutral or mixed, \"bad\" if user reports failure or frustration\n\n"
+        "Example output:\n"
+        "{\n"
+        '  "title": "Add user authentication middleware",\n'
+        '  "description": "Implemented JWT-based auth middleware in src/middleware/auth.py '
+        'and integrated it into the Express router. Added token validation and 401 responses.",\n'
+        '  "is_continuation": false,\n'
+        '  "satisfaction": "good"\n'
+        "}\n\n"
         "Rules:\n"
-        "- Prioritize the latest user request/feedback for satisfaction.\n"
-        '- If uncertain, default to false and "fine".\n'
-        "- Respond with JSON ONLY:\n"
-        '{"is_continuation": true|false, "satisfaction": "good|fine|bad"}'
+        "- Title should be an action phrase (imperative or past tense), not a question\n"
+        "- Description should focus on OUTCOMES, not process\n"
+        "- Infer satisfaction from the user's tone and follow-up, not from the task itself\n"
+        "- Output STRICT JSON only, no markdown fences"
     ),
     "session_summary": (
-        "You are summarizing a coding session that contains multiple conversation turns.\n\n"
-        "Your task:\n"
-        "1. Generate a concise SESSION TITLE (max 80 characters).\n"
-        "2. Generate a SESSION SUMMARY (2-5 sentences).\n\n"
-        "Output STRICT JSON only:\n"
-        '{"title": "string", "summary": "string"}\n\n'
+        "You are summarizing a complete coding session — a sequence of conversation turns "
+        "between a developer and an AI coding assistant.\n\n"
+        "You will receive a JSON object with a turns array. Each turn has:\n"
+        "- turn_number, title, description: what happened in this turn\n"
+        "- user_message: the developer's original request\n"
+        "- tools_used (optional): tool calls made in this turn\n"
+        "- files_modified (optional): files changed in this turn\n\n"
+        "Produce a JSON object with:\n"
+        "- title: session-level goal in max 80 chars, e.g. \"Implement parser enhancements and test suite\"\n"
+        "- summary: 2-5 sentences covering the arc of work — what was the goal, what was accomplished, "
+        "what remains open\n\n"
+        "Example output:\n"
+        "{\n"
+        '  "title": "Refactor database layer and add migration support",\n'
+        '  "summary": "Refactored the SQLite database module to support schema migrations. '
+        "Added a version tracking table and migration runner. Fixed a thread-safety issue "
+        'in the connection pool. Migration tests pass but rollback support is still pending."\n'
+        "}\n\n"
         "Rules:\n"
-        "- The title should capture the overall goal.\n"
-        "- The summary should highlight key accomplishments.\n"
-        '- Prefer action-oriented language ("Implement X", "Fix Y").'
+        "- Focus on the overall narrative, not turn-by-turn recap\n"
+        "- Mention concrete outcomes (files, features, fixes) over process\n"
+        "- Note unresolved issues if any turns ended with problems\n"
+        "- Output STRICT JSON only, no markdown fences"
+    ),
+    "session_extract": (
+        "You are extracting structured knowledge from a coding session for a project knowledge base.\n\n"
+        "You will receive session metadata and an array of turns, each with:\n"
+        "- User requests, assistant responses, tool usage, and file changes\n\n"
+        "Extract ONLY facts clearly supported by the data. Focus on OUTCOMES (what was actually done), "
+        "not intentions that weren't followed through.\n\n"
+        "Use tools_used and files_modified to identify concrete actions:\n"
+        "- Edit/Write calls = code was changed\n"
+        "- Bash calls = commands were run (tests, builds, deployments)\n"
+        "- Task calls = work was delegated to subagents\n\n"
+        "Output a JSON object with ALL of these fields (use empty arrays if nothing applies):\n"
+        "{\n"
+        '  "decisions": [{"what": "string", "why": "string"}],\n'
+        '  "solved": ["string"],\n'
+        '  "features": ["string"],\n'
+        '  "tech_changes": ["string"],\n'
+        '  "open_threads": ["string"]\n'
+        "}\n\n"
+        "Field definitions:\n"
+        "- decisions: architectural or design choices with reasoning. "
+        "Include WHAT was decided and WHY.\n"
+        "- solved: bugs fixed, issues resolved — only if ACTUALLY resolved (not just discussed)\n"
+        "- features: new functionality added or significantly modified\n"
+        "- tech_changes: libraries, tools, config, or patterns introduced/removed/changed\n"
+        "- open_threads: things explicitly left unfinished at session END. "
+        "Do NOT include problems that were raised AND solved in the same session.\n\n"
+        "Rules:\n"
+        "- Each item should be a single concise sentence\n"
+        "- Include all fields even if empty (use [])\n"
+        "- Output STRICT JSON only, no markdown fences"
+    ),
+    "brief_synthesize": (
+        "You are generating a Project Brief — a living knowledge document that captures "
+        "everything a technical leader needs to know about a software project.\n\n"
+        "You will receive:\n"
+        "1. Project documentation (README, CLAUDE.md, etc.) — stable foundation\n"
+        "2. Extracted knowledge from coding sessions — dynamic progress\n"
+        "3. Tech stack indicators (package manifests, etc.)\n\n"
+        "Generate a markdown document with EXACTLY these sections:\n\n"
+        "# Project: <name>\n\n"
+        "## Purpose & Value\n"
+        "What this project is and why it exists. 2-3 sentences max.\n\n"
+        "## Architecture & Tech Stack\n"
+        "Key components, module boundaries, patterns, and dependencies. Be specific about "
+        "directory structure if the data supports it.\n\n"
+        "## Key Decisions\n"
+        "Important decisions with reasoning. Use bullet points prefixed with date:\n"
+        "- [YYYY-MM-DD] Decision description — reasoning\n"
+        "Group decisions from the same date together.\n\n"
+        "## Current State\n"
+        "What works, what's stable, overall maturity. 2-3 sentences.\n\n"
+        "## Recent Progress\n"
+        "Latest work done, features added, bugs fixed. Bullet points, most recent first.\n\n"
+        "## Open Threads\n"
+        "Genuinely unresolved issues. Cross-reference with solved[] and features[] across "
+        "ALL sessions — if something was raised in session A and solved in session B, "
+        "it is NOT an open thread.\n\n"
+        "Rules:\n"
+        "- Be factual. Only include what the data supports.\n"
+        "- Synthesize across sessions — don't just list per-session facts.\n"
+        "- Resolve contradictions: later sessions override earlier ones.\n"
+        "- Output ONLY the markdown document, no wrapping fences."
+    ),
+    "brief_update": (
+        "You are updating an existing Project Brief with new information "
+        "from a recent coding session.\n\n"
+        "You will receive:\n"
+        "1. The current Project Brief (markdown)\n"
+        "2. Extracted facts from a new session\n\n"
+        "Return the UPDATED brief. Rules:\n"
+        "- Preserve all existing content that is still accurate\n"
+        "- Add new decisions to Key Decisions (chronologically)\n"
+        "- Add new progress to Recent Progress (most recent first)\n"
+        "- Update Current State if the new session changes project maturity\n"
+        "- RESOLVE Open Threads that the new session's solved[] or features[] address\n"
+        "- Add new open threads from the session\n"
+        "- Do NOT remove historical decisions or progress\n"
+        "- Output ONLY the updated markdown, no wrapping fences."
     ),
     "event_summary": (
         "You are summarizing a development event that spans multiple sessions.\n\n"
@@ -79,75 +178,6 @@ TASK_PROMPTS: Dict[str, str] = {
         "Generate a very short title (max 60 chars) for a coding session "
         "based on the user's first prompt. Output STRICT JSON only:\n"
         '{"title": "string"}'
-    ),
-    "session_extract": (
-        "You are extracting structured knowledge from a coding session.\n"
-        "Given session info, user messages, assistant responses, tool usage, and file changes,\n"
-        "extract key facts.\n\n"
-        "Extract ONLY what is clearly present. Do not invent or assume.\n"
-        "Focus on OUTCOMES (what was actually done), not just intentions.\n"
-        "Use tools_used and files_modified to identify concrete actions and code changes.\n\n"
-        "Output STRICT JSON:\n"
-        "{\n"
-        '  "decisions": [{"what": "string", "why": "string"}],\n'
-        '  "solved": ["string"],\n'
-        '  "features": ["string"],\n'
-        '  "tech_changes": ["string"],\n'
-        '  "open_threads": ["string"]\n'
-        "}\n\n"
-        "Rules:\n"
-        "- decisions: architectural or design choices with reasoning\n"
-        "- solved: bugs fixed, issues resolved (only if ACTUALLY resolved in this session)\n"
-        "- features: new functionality added or significantly modified\n"
-        "- tech_changes: libraries, tools, patterns introduced or removed\n"
-        "- open_threads: ONLY things explicitly left unfinished at session END.\n"
-        "  Do NOT include problems that were raised AND solved in the same session.\n"
-        "- Omit empty arrays. Be concise (each item max 1 sentence)."
-    ),
-    "brief_synthesize": (
-        "You are generating a Project Brief — a living document that captures "
-        "everything a technical leader needs to know about this software project.\n\n"
-        "You will receive:\n"
-        "1. Project documentation (README, CLAUDE.md, etc.) — stable foundation\n"
-        "2. Extracted knowledge from coding sessions — dynamic progress\n\n"
-        "Generate a markdown document with EXACTLY these sections:\n\n"
-        "# Project: <name>\n\n"
-        "## Purpose & Value\n"
-        "What this project is and why it exists (2-3 sentences)\n\n"
-        "## Architecture & Tech Stack\n"
-        "Key components, patterns, dependencies (concise)\n\n"
-        "## Key Decisions\n"
-        "Important decisions with reasoning. Use bullet points.\n"
-        "Group decisions from the same date together.\n\n"
-        "## Current State\n"
-        "What works, what's stable, overall maturity (2-3 sentences)\n\n"
-        "## Recent Progress\n"
-        "Latest work done, features added, bugs fixed. Bullet points.\n\n"
-        "## Open Threads\n"
-        "ONLY genuinely unresolved issues. If a problem was raised in one session "
-        "and solved in a later session, it is NOT an open thread. "
-        "Cross-reference solved[] and features[] to remove resolved items.\n\n"
-        "Rules:\n"
-        "- Be factual. Only include what the data supports.\n"
-        "- Use unordered bullet points for all lists.\n"
-        "- For Key Decisions, prefix each bullet with date: `- [YYYY-MM-DD] ...`\n"
-        "- Group same-date decisions under one date heading.\n"
-        "- Output ONLY the markdown document, no wrapping fences."
-    ),
-    "brief_update": (
-        "You are updating an existing Project Brief with new information "
-        "from a recent coding session.\n\n"
-        "You will receive:\n"
-        "1. The current Project Brief (markdown)\n"
-        "2. Extracted facts from a new session\n\n"
-        "Return the UPDATED brief. Rules:\n"
-        "- Preserve all existing content that is still accurate\n"
-        "- Add new decisions to Key Decisions (chronologically)\n"
-        "- Add new progress to Recent Progress (most recent first)\n"
-        "- Update Current State if the new session changes it\n"
-        "- Add/resolve Open Threads as appropriate\n"
-        "- Do NOT remove historical decisions or progress\n"
-        "- Output ONLY the updated markdown, no wrapping fences."
     ),
 }
 
@@ -188,6 +218,7 @@ def call_llm(
     custom_prompt: Optional[str] = None,
     model: Optional[str] = None,
     timeout: float = 60.0,
+    max_tokens: int = 1024,
 ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
     """
     Call LLM via litellm.
@@ -198,6 +229,7 @@ def call_llm(
         custom_prompt: Override the default system prompt
         model: Override the configured model
         timeout: Request timeout in seconds
+        max_tokens: Max response tokens
 
     Returns:
         (model_name, result_dict) or (None, None) on failure
@@ -230,7 +262,7 @@ def call_llm(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            max_tokens=1024,
+            max_tokens=max_tokens,
             temperature=0.3,
             timeout=timeout,
         )

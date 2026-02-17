@@ -29,16 +29,16 @@ def summarize_turn(
     db: Optional[Database] = None,
 ) -> Optional[Dict[str, str]]:
     """
-    Generate LLM title + description for a single turn.
+    Generate LLM title + description + metadata for a single turn.
 
+    Single LLM call produces title, description, is_continuation, satisfaction.
     Updates the turn record in the database.
-    Returns {"title": ..., "description": ...} or None.
     """
     db = db or get_db(read_only=False)
 
-    payload = {
-        "user_message": user_message[:3000],
-        "assistant_summary": assistant_summary[:3000],
+    payload: Dict[str, Any] = {
+        "user_message": user_message,
+        "assistant_summary": assistant_summary,
     }
     if tool_uses:
         payload["tools_used"] = tool_uses[:50]
@@ -52,44 +52,22 @@ def summarize_turn(
     title = result.get("title", "")[:200]
     description = result.get("description", "")[:1000]
 
-    if title:
-        conn = db._conn()
-        conn.execute(
-            "UPDATE turns SET title=?, description=?, model_name=? WHERE id=?",
-            (title, description, model, turn_id),
-        )
-        conn.commit()
-
-    # Also classify metadata
-    _classify_turn_metadata(turn_id, user_message, db=db)
-
-    return {"title": title, "description": description}
-
-
-def _classify_turn_metadata(
-    turn_id: str,
-    user_message: str,
-    *,
-    db: Optional[Database] = None,
-) -> None:
-    """Classify turn as continuation/new and satisfaction level."""
-    db = db or get_db(read_only=False)
-
-    _, result = call_llm("metadata", {"user_message": user_message[:2000]})
-    if not result:
-        return
-
+    # Extract metadata from same response (merged call)
     is_cont = 1 if result.get("is_continuation") else 0
     satisfaction = result.get("satisfaction", "fine")
     if satisfaction not in ("good", "fine", "bad"):
         satisfaction = "fine"
 
-    conn = db._conn()
-    conn.execute(
-        "UPDATE turns SET is_continuation=?, satisfaction=? WHERE id=?",
-        (is_cont, satisfaction, turn_id),
-    )
-    conn.commit()
+    if title:
+        conn = db._conn()
+        conn.execute(
+            """UPDATE turns SET title=?, description=?, model_name=?,
+               is_continuation=?, satisfaction=? WHERE id=?""",
+            (title, description, model, is_cont, satisfaction, turn_id),
+        )
+        conn.commit()
+
+    return {"title": title, "description": description}
 
 
 def summarize_session(
@@ -109,17 +87,33 @@ def summarize_session(
     if not turns:
         return None
 
-    # Build payload with turn summaries
+    # Build payload with turn summaries + tool/file data
     turn_data = []
     for t in turns:
-        turn_data.append({
+        entry: Dict[str, Any] = {
             "turn_number": t.turn_number,
             "title": t.title,
             "description": t.description or "",
-            "user_message": (t.user_message or "")[:500],
-        })
+            "user_message": t.user_message or "",
+        }
+        # Include tool/file data for richer session understanding
+        if t.tool_summary:
+            try:
+                tools = json.loads(t.tool_summary)
+                if tools:
+                    entry["tools_used"] = tools[:10]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if t.files_modified:
+            try:
+                files = json.loads(t.files_modified)
+                if files:
+                    entry["files_modified"] = files
+            except (json.JSONDecodeError, TypeError):
+                pass
+        turn_data.append(entry)
 
-    _, result = call_llm("session_summary", {"turns": turn_data})
+    _, result = call_llm("session_summary", {"turns": turn_data}, max_tokens=2048)
     if not result:
         return None
 
