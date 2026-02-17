@@ -95,7 +95,8 @@ TASK_PROMPTS: Dict[str, str] = {
         '  "solved": ["string"],\n'
         '  "features": ["string"],\n'
         '  "tech_changes": ["string"],\n'
-        '  "open_threads": ["string"]\n'
+        '  "open_threads": ["string"],\n'
+        '  "resolved_threads": ["string"]\n'
         "}\n\n"
         "Field definitions:\n"
         "- decisions: architectural or design choices with reasoning. "
@@ -104,7 +105,9 @@ TASK_PROMPTS: Dict[str, str] = {
         "- features: new functionality added or significantly modified\n"
         "- tech_changes: libraries, tools, config, or patterns introduced/removed/changed\n"
         "- open_threads: things explicitly left unfinished at session END. "
-        "Do NOT include problems that were raised AND solved in the same session.\n\n"
+        "Do NOT include problems that were raised AND solved in the same session.\n"
+        "- resolved_threads: pre-existing issues from PREVIOUS sessions that THIS session resolved. "
+        "Only include if the session explicitly addresses a known prior issue (not new issues created and solved within this session).\n\n"
         "Rules:\n"
         "- Each item should be a single concise sentence\n"
         "- Include all fields even if empty (use [])\n"
@@ -133,9 +136,13 @@ TASK_PROMPTS: Dict[str, str] = {
         "## Recent Progress\n"
         "Latest work done, features added, bugs fixed. Bullet points, most recent first.\n\n"
         "## Open Threads\n"
-        "Genuinely unresolved issues. Cross-reference with solved[] and features[] across "
-        "ALL sessions — if something was raised in session A and solved in session B, "
-        "it is NOT an open thread.\n\n"
+        "Genuinely unresolved issues ONLY. Apply these filters strictly:\n"
+        "1. Cross-reference with solved[], features[], and resolved_threads[] across ALL sessions — "
+        "if something was raised in session A and addressed in session B, it is NOT open.\n"
+        "2. Use git commit history (if provided) as OBJECTIVE EVIDENCE of completed work — "
+        "a commit message about fixing X means X is resolved.\n"
+        "3. When in doubt, EXCLUDE rather than include. A false open thread misleads; "
+        "a missing one can be rediscovered.\n\n"
         "Rules:\n"
         "- Be factual. Only include what the data supports.\n"
         "- Synthesize across sessions — don't just list per-session facts.\n"
@@ -153,10 +160,33 @@ TASK_PROMPTS: Dict[str, str] = {
         "- Add new decisions to Key Decisions (chronologically)\n"
         "- Add new progress to Recent Progress (most recent first)\n"
         "- Update Current State if the new session changes project maturity\n"
-        "- RESOLVE Open Threads that the new session's solved[] or features[] address\n"
+        "- RESOLVE Open Threads that the new session's solved[], features[], or resolved_threads[] address\n"
         "- Add new open threads from the session\n"
         "- Do NOT remove historical decisions or progress\n"
         "- Output ONLY the updated markdown, no wrapping fences."
+    ),
+    "brief_verify": (
+        "You are a quality gate for a Project Brief's Open Threads section.\n\n"
+        "Your SOLE task: review each open thread and determine if it should remain.\n\n"
+        "You will receive:\n"
+        "1. The current Open Threads section from the brief\n"
+        "2. Evidence of completed work:\n"
+        "   - solved: problems that were fixed across sessions\n"
+        "   - features: functionality that was added\n"
+        "   - resolved_threads: explicitly resolved prior issues\n"
+        "   - git_log: recent commit messages (objective evidence)\n\n"
+        "For each thread, check:\n"
+        "- Is it addressed by any item in solved/features/resolved_threads?\n"
+        "- Is it covered by a git commit message?\n"
+        "- Is it too vague or trivial to be actionable?\n"
+        "- Is it a 'nice to have' rather than a genuine unresolved issue?\n\n"
+        "Output ONLY the filtered ## Open Threads section in markdown.\n"
+        "Keep threads that are genuinely unresolved with clear evidence.\n"
+        "Remove threads that have been addressed or are not actionable.\n"
+        "If no threads remain, output:\n\n"
+        "## Open Threads\n\n"
+        "No unresolved issues identified.\n\n"
+        "Output ONLY the markdown section, no wrapping fences."
     ),
     "event_summary": (
         "You are summarizing a development event that spans multiple sessions.\n\n"

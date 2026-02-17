@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -223,9 +224,12 @@ def synthesize_brief(
         logger.info(f"Extracting facts from {len(session_ids)} sessions...")
         extractions = extract_sessions_parallel(session_ids, db=db)
 
-    # 4. Reduce: synthesize
+    # 4. Get git log for objective evidence
+    git_log = _get_git_log(workspace)
+
+    # 5. Reduce: synthesize
     project_name = Path(workspace).name
-    user_content = _build_synthesis_input(project_name, docs, tech, extractions)
+    user_content = _build_synthesis_input(project_name, docs, tech, extractions, git_log)
 
     logger.info("Synthesizing Project Brief...")
     # Scale max_tokens with input complexity
@@ -233,6 +237,9 @@ def synthesize_brief(
     brief = call_llm_text("brief_synthesize", user_content, max_tokens=max_tokens)
     if not brief:
         return None
+
+    # 6. Verify: dedicated pass to filter Open Threads
+    brief = _verify_open_threads(brief, extractions, git_log)
 
     # Add footer
     from datetime import datetime
@@ -296,6 +303,77 @@ def update_brief(
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+def _get_git_log(workspace: str, limit: int = 50) -> str:
+    """Get recent git commit log for a workspace. Returns empty string on failure."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", f"-{limit}"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception as e:
+        logger.debug(f"Cannot get git log for {workspace}: {e}")
+    return ""
+
+
+def _verify_open_threads(
+    brief: str,
+    extractions: List[Dict[str, Any]],
+    git_log: str,
+) -> str:
+    """Post-synthesis verification pass to filter Open Threads.
+
+    Collects all resolution evidence and asks LLM to filter the threads.
+    Returns brief with verified Open Threads section.
+    """
+    # Extract Open Threads section from brief
+    match = re.search(r"(## Open Threads\n.*?)(?=\n## |\n---|\Z)", brief, re.DOTALL)
+    if not match:
+        return brief
+
+    open_threads_section = match.group(1).strip()
+
+    # Collect resolution evidence from all extractions
+    all_solved = []
+    all_features = []
+    all_resolved = []
+    for ext in extractions:
+        all_solved.extend(ext.get("solved", []))
+        all_features.extend(ext.get("features", []))
+        all_resolved.extend(ext.get("resolved_threads", []))
+
+    if not all_solved and not all_features and not all_resolved and not git_log:
+        return brief  # No evidence to verify against
+
+    # Build verification input
+    parts = [
+        f"{open_threads_section}\n",
+        "## Resolution Evidence\n",
+    ]
+    if all_solved:
+        parts.append(f"### Problems Solved\n" + "\n".join(f"- {s}" for s in all_solved) + "\n")
+    if all_features:
+        parts.append(f"### Features Added\n" + "\n".join(f"- {f}" for f in all_features) + "\n")
+    if all_resolved:
+        parts.append(f"### Explicitly Resolved Threads\n" + "\n".join(f"- {r}" for r in all_resolved) + "\n")
+    if git_log:
+        parts.append(f"### Git Commit History\n```\n{git_log}\n```\n")
+
+    logger.info("Verifying Open Threads...")
+    verified = call_llm_text("brief_verify", "\n".join(parts), max_tokens=2048)
+    if not verified:
+        return brief
+
+    # Replace Open Threads section in brief
+    verified = verified.strip()
+    brief = brief[:match.start()] + verified + brief[match.end():]
+    return brief
+
+
 def _select_sessions(
     workspace: str,
     *,
@@ -319,6 +397,7 @@ def _build_synthesis_input(
     docs: Dict[str, str],
     tech: Dict[str, str],
     extractions: List[Dict[str, Any]],
+    git_log: str = "",
 ) -> str:
     """Build the user message for brief synthesis."""
     parts = [f"# Project: {project_name}\n"]
@@ -334,6 +413,10 @@ def _build_synthesis_input(
         parts.append("## Detected Tech Stack\n")
         for indicator, content in tech.items():
             parts.append(f"### {indicator}\n{content}\n")
+
+    # Git history — objective evidence of completed work
+    if git_log:
+        parts.append(f"## Recent Git Commits\n```\n{git_log}\n```\n")
 
     # Session extractions
     if extractions:
