@@ -25,9 +25,11 @@ logger = logging.getLogger(__name__)
 TASK_PROMPTS: Dict[str, str] = {
     "turn_summary": (
         "You summarize a single coding conversation turn.\n"
-        "Given user messages and assistant replies, produce:\n"
+        "Given user messages, assistant replies, tool usage, and file changes, produce:\n"
         "1. A concise TITLE (max 80 chars) describing what happened.\n"
         "2. A short DESCRIPTION (1-3 sentences) of the work done.\n\n"
+        "If tools_used is provided, use it to understand WHAT was done (files read, edited, commands run).\n"
+        "If files_modified is provided, mention the key files that changed.\n\n"
         "Output STRICT JSON only:\n"
         '{"title": "string", "description": "string"}'
     ),
@@ -80,9 +82,11 @@ TASK_PROMPTS: Dict[str, str] = {
     ),
     "session_extract": (
         "You are extracting structured knowledge from a coding session.\n"
-        "Given session info, user messages, and assistant responses, extract key facts.\n\n"
+        "Given session info, user messages, assistant responses, tool usage, and file changes,\n"
+        "extract key facts.\n\n"
         "Extract ONLY what is clearly present. Do not invent or assume.\n"
-        "Focus on OUTCOMES (what was actually done), not just intentions.\n\n"
+        "Focus on OUTCOMES (what was actually done), not just intentions.\n"
+        "Use tools_used and files_modified to identify concrete actions and code changes.\n\n"
         "Output STRICT JSON:\n"
         "{\n"
         '  "decisions": [{"what": "string", "why": "string"}],\n'

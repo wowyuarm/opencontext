@@ -38,6 +38,8 @@ class Turn:
     timestamp: str
     is_continuation: bool = False  # if_last_task
     satisfaction: str = "fine"     # good | fine | bad
+    tool_summary: Optional[str] = None   # JSON array of tool uses
+    files_modified: Optional[str] = None # JSON array of file paths
     created_at: Optional[str] = None
 
 

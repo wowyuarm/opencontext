@@ -22,6 +22,7 @@ class ParsedTurn:
         "turn_number", "user_message", "assistant_summary",
         "content_hash", "timestamp", "raw_content",
         "start_line", "end_line",
+        "tool_uses", "files_modified", "assistant_text",
     )
 
     def __init__(
@@ -34,6 +35,9 @@ class ParsedTurn:
         raw_content: str = "",
         start_line: int = 0,
         end_line: int = 0,
+        tool_uses: Optional[List[Dict[str, str]]] = None,
+        files_modified: Optional[List[str]] = None,
+        assistant_text: str = "",
     ):
         self.turn_number = turn_number
         self.user_message = user_message
@@ -43,6 +47,9 @@ class ParsedTurn:
         self.raw_content = raw_content
         self.start_line = start_line
         self.end_line = end_line
+        self.tool_uses = tool_uses or []
+        self.files_modified = files_modified or []
+        self.assistant_text = assistant_text
 
 
 def parse_session(session_file: Path, *, since_turn: int = 0) -> List[ParsedTurn]:
@@ -136,7 +143,7 @@ def _parse_claude(session_file: Path, *, since_turn: int = 0) -> List[ParsedTurn
     2. Trace parentUUID chains to find root messages
     3. Group by root timestamp = one logical turn
     4. Merge API retries (same content within 2min window)
-    5. Extract assistant summary from last assistant message in each turn
+    5. Extract assistant content (text, tool usage, file changes)
     """
     lines = _read_jsonl(session_file)
     if not lines:
@@ -174,8 +181,13 @@ def _parse_claude(session_file: Path, *, since_turn: int = 0) -> List[ParsedTurn
         user_text = _extract_text_from_content(group["messages"][0].get("content", []))
         user_text = _clean_user_message(user_text)
 
-        # Extract assistant summary (last assistant message in range)
-        assistant_text = _extract_assistant_summary(lines, start_line, end_line)
+        # Extract rich assistant content (text, tools, files)
+        assistant_text, tool_uses, files_modified = _extract_assistant_content(
+            lines, start_line, end_line
+        )
+
+        # Backward-compatible summary from full text
+        assistant_summary = assistant_text[:2000] if assistant_text else ""
 
         # Compute content hash from the JSONL lines in range
         raw_content = "\n".join(
@@ -187,12 +199,15 @@ def _parse_claude(session_file: Path, *, since_turn: int = 0) -> List[ParsedTurn
         turns.append(ParsedTurn(
             turn_number=turn_num,
             user_message=user_text[:2000],
-            assistant_summary=assistant_text[:2000] if assistant_text else "",
+            assistant_summary=assistant_summary,
             content_hash=content_hash,
             timestamp=group["timestamp"] or "",
             raw_content=raw_content,
             start_line=start_line,
             end_line=end_line,
+            tool_uses=tool_uses,
+            files_modified=files_modified,
+            assistant_text=assistant_text,
         ))
 
     return turns
@@ -357,9 +372,21 @@ def _extract_text_from_content(content) -> str:
     return ""
 
 
-def _extract_assistant_summary(lines: List[Dict], start_line: int, end_line: int) -> str:
-    """Extract the last assistant text message within a line range."""
-    last_text = ""
+def _extract_assistant_content(
+    lines: List[Dict], start_line: int, end_line: int
+) -> Tuple[str, List[Dict[str, str]], List[str]]:
+    """Extract rich content from assistant messages within a line range.
+
+    Returns:
+        (assistant_text, tool_uses, files_modified)
+        - assistant_text: all text blocks merged
+        - tool_uses: [{name, ...key_params}] for each tool call
+        - files_modified: deduplicated file paths from Edit/Write
+    """
+    text_parts: List[str] = []
+    tool_uses: List[Dict[str, str]] = []
+    files_modified_set: set = set()
+
     for data in lines:
         line_no = data.get("_line", 0)
         if line_no < start_line or line_no > end_line:
@@ -369,14 +396,88 @@ def _extract_assistant_summary(lines: List[Dict], start_line: int, end_line: int
 
         message = data.get("message", {})
         content = message.get("content", [])
-        text = _extract_text_from_content(content)
-        if text:
-            last_text = text
+        if not isinstance(content, list):
+            continue
 
-    # Truncate to a reasonable summary length
-    if len(last_text) > 500:
-        last_text = last_text[:497] + "..."
-    return last_text
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+
+            block_type = block.get("type")
+
+            if block_type == "text":
+                text = block.get("text", "").strip()
+                if text:
+                    text_parts.append(text)
+
+            elif block_type == "tool_use":
+                tool_info = _extract_tool_info(block)
+                if tool_info:
+                    tool_uses.append(tool_info)
+
+                    # Track file modifications
+                    name = tool_info.get("name", "")
+                    if name in ("Edit", "Write") and "file_path" in tool_info:
+                        files_modified_set.add(tool_info["file_path"])
+
+    assistant_text = "\n\n".join(text_parts)
+    files_modified = sorted(files_modified_set)
+
+    return assistant_text, tool_uses, files_modified
+
+
+def _extract_tool_info(block: Dict) -> Optional[Dict[str, str]]:
+    """Extract a compact summary from a tool_use content block.
+
+    Returns dict with 'name' and tool-specific key parameters.
+    """
+    name = block.get("name", "")
+    if not name:
+        return None
+
+    inp = block.get("input", {})
+    if not isinstance(inp, dict):
+        return {"name": name}
+
+    info: Dict[str, str] = {"name": name}
+
+    if name == "Bash":
+        if "command" in inp:
+            info["command"] = str(inp["command"])[:200]
+        if "description" in inp:
+            info["description"] = str(inp["description"])[:100]
+
+    elif name in ("Read", "Write", "Edit"):
+        if "file_path" in inp:
+            info["file_path"] = str(inp["file_path"])
+
+    elif name == "Glob":
+        if "pattern" in inp:
+            info["pattern"] = str(inp["pattern"])
+        if "path" in inp:
+            info["path"] = str(inp["path"])
+
+    elif name == "Grep":
+        if "pattern" in inp:
+            info["pattern"] = str(inp["pattern"])[:100]
+        if "path" in inp:
+            info["path"] = str(inp["path"])
+
+    elif name == "Task":
+        if "description" in inp:
+            info["description"] = str(inp["description"])[:100]
+        if "subagent_type" in inp:
+            info["subagent_type"] = str(inp["subagent_type"])
+
+    elif name == "WebSearch":
+        if "query" in inp:
+            info["query"] = str(inp["query"])[:100]
+
+    elif name == "WebFetch":
+        if "url" in inp:
+            info["url"] = str(inp["url"])[:200]
+
+    return info
 
 
 def _clean_user_message(text: str) -> str:

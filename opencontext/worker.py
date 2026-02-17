@@ -65,6 +65,8 @@ def _process_turn_summary(payload: dict, *, db: Database) -> None:
         turn_id=payload["turn_id"],
         user_message=payload.get("user_message", ""),
         assistant_summary=payload.get("assistant_summary", ""),
+        tool_uses=payload.get("tool_uses"),
+        files_modified=payload.get("files_modified"),
         db=db,
     )
 

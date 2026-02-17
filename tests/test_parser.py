@@ -12,6 +12,7 @@ from opencontext.ingest.parser import (
     extract_project_path,
     parse_session,
     _extract_text_from_content,
+    _extract_tool_info,
     _clean_user_message,
     _merge_retries,
 )
@@ -44,6 +45,27 @@ def _make_assistant_msg(text, uuid="a1", parent_uuid="u1", ts="2025-01-01T10:00:
         "parentUuid": parent_uuid,
         "timestamp": ts,
         "message": {"content": [{"type": "text", "text": text}]},
+    }
+
+
+def _make_assistant_tool_msg(tool_name, tool_input, uuid="a1", parent_uuid="u1",
+                             ts="2025-01-01T10:00:05Z", text=""):
+    """Create an assistant message with a tool_use block."""
+    content = []
+    if text:
+        content.append({"type": "text", "text": text})
+    content.append({
+        "type": "tool_use",
+        "id": f"toolu_{uuid}",
+        "name": tool_name,
+        "input": tool_input,
+    })
+    return {
+        "type": "assistant",
+        "uuid": uuid,
+        "parentUuid": parent_uuid,
+        "timestamp": ts,
+        "message": {"content": content},
     }
 
 
@@ -253,3 +275,110 @@ class TestParseSession:
         turns1 = parse_session(p)
         turns2 = parse_session(p)
         assert turns1[0].content_hash == turns2[0].content_hash
+
+
+# ── Tool Extraction ──────────────────────────────────────────────────────────
+
+
+class TestExtractToolInfo:
+    def test_bash_tool(self):
+        block = {"name": "Bash", "input": {"command": "pytest tests/", "description": "Run tests"}}
+        info = _extract_tool_info(block)
+        assert info["name"] == "Bash"
+        assert info["command"] == "pytest tests/"
+        assert info["description"] == "Run tests"
+
+    def test_edit_tool(self):
+        block = {"name": "Edit", "input": {"file_path": "/foo/bar.py", "old_string": "a", "new_string": "b"}}
+        info = _extract_tool_info(block)
+        assert info["name"] == "Edit"
+        assert info["file_path"] == "/foo/bar.py"
+        # old_string and new_string are not extracted (too verbose)
+        assert "old_string" not in info
+
+    def test_task_tool(self):
+        block = {"name": "Task", "input": {"description": "Search code", "subagent_type": "Explore"}}
+        info = _extract_tool_info(block)
+        assert info["name"] == "Task"
+        assert info["subagent_type"] == "Explore"
+
+    def test_unknown_tool(self):
+        block = {"name": "SomeNewTool", "input": {"x": 1}}
+        info = _extract_tool_info(block)
+        assert info == {"name": "SomeNewTool"}
+
+    def test_empty_name(self):
+        assert _extract_tool_info({"name": "", "input": {}}) is None
+
+
+# ── Rich Content Extraction ──────────────────────────────────────────────────
+
+
+class TestRichContentExtraction:
+    def test_extracts_tool_uses(self, tmp_path):
+        records = [
+            _make_user_msg("Fix the bug", uuid="u1", ts="2025-01-01T10:00:00Z"),
+            _make_assistant_tool_msg("Read", {"file_path": "/src/main.py"},
+                                    uuid="a1", parent_uuid="u1", text="Let me read the file."),
+            _make_assistant_tool_msg("Edit", {"file_path": "/src/main.py", "old_string": "x", "new_string": "y"},
+                                    uuid="a2", parent_uuid="u1", ts="2025-01-01T10:00:10Z"),
+        ]
+        p = _write_jsonl(tmp_path / "session.jsonl", records)
+        turns = parse_session(p)
+        assert len(turns) == 1
+        assert len(turns[0].tool_uses) == 2
+        assert turns[0].tool_uses[0]["name"] == "Read"
+        assert turns[0].tool_uses[1]["name"] == "Edit"
+
+    def test_extracts_files_modified(self, tmp_path):
+        records = [
+            _make_user_msg("Update code", uuid="u1", ts="2025-01-01T10:00:00Z"),
+            _make_assistant_tool_msg("Edit", {"file_path": "/src/a.py", "old_string": "x", "new_string": "y"},
+                                    uuid="a1", parent_uuid="u1"),
+            _make_assistant_tool_msg("Write", {"file_path": "/src/b.py", "content": "new"},
+                                    uuid="a2", parent_uuid="u1", ts="2025-01-01T10:00:10Z"),
+            _make_assistant_tool_msg("Read", {"file_path": "/src/c.py"},
+                                    uuid="a3", parent_uuid="u1", ts="2025-01-01T10:00:15Z"),
+        ]
+        p = _write_jsonl(tmp_path / "session.jsonl", records)
+        turns = parse_session(p)
+        assert len(turns) == 1
+        # Only Edit and Write count as modifications
+        assert sorted(turns[0].files_modified) == ["/src/a.py", "/src/b.py"]
+
+    def test_merges_all_assistant_text(self, tmp_path):
+        records = [
+            _make_user_msg("Explain", uuid="u1", ts="2025-01-01T10:00:00Z"),
+            _make_assistant_msg("First part.", uuid="a1", parent_uuid="u1"),
+            _make_assistant_msg("Second part.", uuid="a2", parent_uuid="u1", ts="2025-01-01T10:00:10Z"),
+            _make_assistant_msg("Third part.", uuid="a3", parent_uuid="u1", ts="2025-01-01T10:00:15Z"),
+        ]
+        p = _write_jsonl(tmp_path / "session.jsonl", records)
+        turns = parse_session(p)
+        assert len(turns) == 1
+        assert "First part." in turns[0].assistant_text
+        assert "Second part." in turns[0].assistant_text
+        assert "Third part." in turns[0].assistant_text
+
+    def test_no_tools_returns_empty(self, tmp_path):
+        records = [
+            _make_user_msg("Hello", uuid="u1", ts="2025-01-01T10:00:00Z"),
+            _make_assistant_msg("Hi there.", uuid="a1", parent_uuid="u1"),
+        ]
+        p = _write_jsonl(tmp_path / "session.jsonl", records)
+        turns = parse_session(p)
+        assert len(turns) == 1
+        assert turns[0].tool_uses == []
+        assert turns[0].files_modified == []
+
+    def test_deduplicates_files_modified(self, tmp_path):
+        records = [
+            _make_user_msg("Fix", uuid="u1", ts="2025-01-01T10:00:00Z"),
+            _make_assistant_tool_msg("Edit", {"file_path": "/src/a.py", "old_string": "x", "new_string": "y"},
+                                    uuid="a1", parent_uuid="u1"),
+            _make_assistant_tool_msg("Edit", {"file_path": "/src/a.py", "old_string": "p", "new_string": "q"},
+                                    uuid="a2", parent_uuid="u1", ts="2025-01-01T10:00:10Z"),
+        ]
+        p = _write_jsonl(tmp_path / "session.jsonl", records)
+        turns = parse_session(p)
+        assert turns[0].files_modified == ["/src/a.py"]

@@ -89,7 +89,7 @@ def extract_session_facts(
     # Build compact payload — include both user message and assistant work
     turn_data = []
     for t in turns:
-        entry: Dict[str, str] = {}
+        entry: Dict[str, Any] = {}
         # Prefer LLM-generated title/description if available
         if t.title and not t.title.startswith("Turn "):
             entry["title"] = t.title
@@ -101,6 +101,21 @@ def extract_session_facts(
         # Include assistant summary (what was done) — critical for understanding
         if t.assistant_summary:
             entry["assistant"] = t.assistant_summary[:500]
+        # Include tool usage and file changes for richer context
+        if t.tool_summary:
+            try:
+                tools = json.loads(t.tool_summary)
+                if tools:
+                    entry["tools_used"] = tools[:20]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if t.files_modified:
+            try:
+                files = json.loads(t.files_modified)
+                if files:
+                    entry["files_modified"] = files
+            except (json.JSONDecodeError, TypeError):
+                pass
         if entry:
             turn_data.append(entry)
 

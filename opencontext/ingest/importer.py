@@ -4,6 +4,7 @@ Session importer — parse session files and store in database.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from pathlib import Path
@@ -101,6 +102,8 @@ def import_session(
             model_name=None,
             content_hash=pt.content_hash,
             timestamp=pt.timestamp,
+            tool_summary=json.dumps(pt.tool_uses, ensure_ascii=False) if pt.tool_uses else None,
+            files_modified=json.dumps(pt.files_modified, ensure_ascii=False) if pt.files_modified else None,
         )
         db.insert_turn(turn, content=pt.raw_content or None)
         imported += 1
@@ -115,6 +118,8 @@ def import_session(
                 "turn_number": pt.turn_number,
                 "user_message": pt.user_message,
                 "assistant_summary": pt.assistant_summary,
+                "tool_uses": pt.tool_uses,
+                "files_modified": pt.files_modified,
             },
         )
 

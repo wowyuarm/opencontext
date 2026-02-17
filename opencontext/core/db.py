@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS turns (
     timestamp TEXT NOT NULL,
     is_continuation INTEGER DEFAULT 0,
     satisfaction TEXT DEFAULT 'fine',
+    tool_summary TEXT,
+    files_modified TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(session_id, turn_number)
 );
@@ -339,8 +341,8 @@ class Database:
             """INSERT OR IGNORE INTO turns
                (id, session_id, turn_number, user_message, assistant_summary,
                 title, description, model_name, content_hash, timestamp,
-                is_continuation, satisfaction, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                is_continuation, satisfaction, tool_summary, files_modified, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 t.id,
                 t.session_id,
@@ -354,6 +356,8 @@ class Database:
                 t.timestamp,
                 1 if t.is_continuation else 0,
                 t.satisfaction,
+                t.tool_summary,
+                t.files_modified,
                 t.created_at or _utcnow(),
             ),
         )
@@ -432,6 +436,8 @@ class Database:
             timestamp=row["timestamp"],
             is_continuation=is_cont,
             satisfaction=_get("satisfaction", "fine"),
+            tool_summary=_get("tool_summary"),
+            files_modified=_get("files_modified"),
             created_at=_get("created_at"),
         )
 

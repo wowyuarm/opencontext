@@ -24,6 +24,8 @@ def summarize_turn(
     user_message: str,
     assistant_summary: str,
     *,
+    tool_uses: Optional[list] = None,
+    files_modified: Optional[list] = None,
     db: Optional[Database] = None,
 ) -> Optional[Dict[str, str]]:
     """
@@ -38,6 +40,10 @@ def summarize_turn(
         "user_message": user_message[:3000],
         "assistant_summary": assistant_summary[:3000],
     }
+    if tool_uses:
+        payload["tools_used"] = tool_uses[:50]
+    if files_modified:
+        payload["files_modified"] = files_modified[:50]
 
     model, result = call_llm("turn_summary", payload)
     if not result:
