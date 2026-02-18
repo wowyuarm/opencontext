@@ -65,7 +65,13 @@ def import_session(
     else:
         new_turns = parse_session(path)
         if not new_turns:
-            return {"error": f"No turns found in {session_file}"}
+            # Incomplete/aborted session with no dialogue — skip silently
+            return {
+                "session_id": session_id,
+                "turns_imported": 0,
+                "turns_skipped": 0,
+                "status": "skipped_empty",
+            }
 
         # Get timestamp from first turn
         started_at = new_turns[0].timestamp if new_turns else ""

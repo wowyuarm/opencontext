@@ -76,7 +76,7 @@ def detect_format(session_file: Path) -> Optional[str]:
     try:
         with open(session_file, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
-                if i >= 10:
+                if i >= 30:  # Increased from 10 to handle file-history-snapshot etc.
                     break
                 line = line.strip()
                 if not line:
@@ -89,6 +89,9 @@ def detect_format(session_file: Path) -> Optional[str]:
                 # Claude Code: {type: "user"/"assistant", message: {...}}
                 if data.get("type") in ("user", "assistant") and "message" in data:
                     return "claude"
+                # Claude Code metadata types — skip and keep searching for user/assistant
+                if data.get("type") in ("file-history-snapshot", "queue-operation", "progress"):
+                    continue
     except Exception:
         pass
     return None

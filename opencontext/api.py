@@ -38,9 +38,7 @@ def init() -> Dict[str, Any]:
         results["created"].append(str(config_path))
 
     # 3. Initialize database
-    db_path = Path(
-        os.getenv("OPENCONTEXT_DB_PATH", _DEFAULT_DB_PATH)
-    ).expanduser()
+    db_path = Path(os.getenv("OPENCONTEXT_DB_PATH", _DEFAULT_DB_PATH)).expanduser()
     if db_path.exists():
         results["existing"].append(str(db_path))
     else:
@@ -51,6 +49,7 @@ def init() -> Dict[str, Any]:
 
 
 # ── Setup ────────────────────────────────────────────────────────────────────
+
 
 def setup_check() -> Dict[str, Any]:
     """Check environment state for setup guidance.
@@ -64,9 +63,7 @@ def setup_check() -> Dict[str, Any]:
     config_path = Path(
         os.getenv("OPENCONTEXT_CONFIG", _DEFAULT_CONFIG_PATH)
     ).expanduser()
-    db_path = Path(
-        os.getenv("OPENCONTEXT_DB_PATH", _DEFAULT_DB_PATH)
-    ).expanduser()
+    db_path = Path(os.getenv("OPENCONTEXT_DB_PATH", _DEFAULT_DB_PATH)).expanduser()
 
     result: Dict[str, Any] = {
         "initialized": config_path.exists(),
@@ -101,7 +98,7 @@ def setup_check() -> Dict[str, Any]:
     return result
 
 
-def setup_discover() -> List[Dict[str, str]]:
+def setup_discover() -> List[Dict[str, str | int]]:
     """Scan common paths and return discoverable projects.
 
     Groups session files by project path for a cleaner overview.
@@ -124,6 +121,7 @@ def setup_discover() -> List[Dict[str, str]]:
 def setup_config(key: str, value: str) -> Dict[str, str]:
     """Set a config key-value pair."""
     from .core.config import Config
+
     Config.set_config(key, value)
     return {"key": key, "value": value, "status": "ok"}
 
@@ -135,7 +133,7 @@ _DEFAULT_CONFIG_TEMPLATE = """\
 # Model string uses litellm format: "provider/model-name"
 # Examples:
 #   anthropic/claude-haiku-4-5-20251001   (Anthropic)
-#   openai/gpt-4o-mini                    (OpenAI)
+#   openai/gpt-5-mini                     (OpenAI)
 #   deepseek/deepseek-chat                (DeepSeek)
 #   gemini/gemini-3.0-flash               (Google)
 #   ...qwen, moonshots, etc.
@@ -163,14 +161,17 @@ def _serialize(obj: Any) -> Any:
 
 def _db(read_only: bool = True):
     from .core.db import get_db
+
     return get_db(read_only=read_only)
 
 
 # ── Status ────────────────────────────────────────────────────────────────────
 
+
 def status() -> Dict[str, Any]:
     """Database stats, config diagnostics, and API key check."""
     from .core.config import Config
+
     cfg = Config.load()
 
     result: Dict[str, Any] = {
@@ -197,13 +198,16 @@ def status() -> Dict[str, Any]:
 
 # ── Discovery ─────────────────────────────────────────────────────────────────
 
+
 def discover(project: Optional[str] = None) -> List[Dict[str, str]]:
     """Find Claude Code session files on disk (not yet imported)."""
     from .ingest.discovery import discover_sessions
+
     return discover_sessions(project_filter=project)
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
+
 
 def sessions(*, workspace: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
     """List imported sessions."""
@@ -230,13 +234,16 @@ def show(session_id: str) -> Dict[str, Any]:
 
 # ── Import ────────────────────────────────────────────────────────────────────
 
+
 def import_session(session_file: str, *, force: bool = False) -> Dict[str, Any]:
     """Import a session file into the database."""
     from .ingest.importer import import_session as _import
+
     return _import(session_file, force=force)
 
 
 # ── Search ────────────────────────────────────────────────────────────────────
+
 
 def search(
     query: str,
@@ -256,27 +263,38 @@ def search(
     results: Dict[str, Any] = {"events": [], "turns": [], "sessions": [], "content": []}
 
     if search_type in ("all", "event"):
-        events = db.search_events(query, limit=limit, regex=regex, ignore_case=ignore_case)
+        events = db.search_events(
+            query, limit=limit, regex=regex, ignore_case=ignore_case
+        )
         results["events"] = [_serialize(e) for e in events]
 
     if search_type in ("all", "turn"):
         results["turns"] = db.search_turns(
-            query, limit=limit, regex=regex, ignore_case=ignore_case,
+            query,
+            limit=limit,
+            regex=regex,
+            ignore_case=ignore_case,
         )
 
     if search_type in ("all", "session"):
-        found = db.search_sessions(query, limit=limit, regex=regex, ignore_case=ignore_case)
+        found = db.search_sessions(
+            query, limit=limit, regex=regex, ignore_case=ignore_case
+        )
         results["sessions"] = [_serialize(s) for s in found]
 
     if search_type == "content":
         results["content"] = db.search_content(
-            query, limit=limit, regex=regex, ignore_case=ignore_case,
+            query,
+            limit=limit,
+            regex=regex,
+            ignore_case=ignore_case,
         )
 
     return results
 
 
 # ── Events ────────────────────────────────────────────────────────────────────
+
 
 def events(*, limit: int = 50) -> List[Dict[str, Any]]:
     """List all events."""
@@ -299,6 +317,7 @@ def event(event_id: str) -> Dict[str, Any]:
 
 # ── Agents ────────────────────────────────────────────────────────────────────
 
+
 def agents() -> List[Dict[str, Any]]:
     """List all agent profiles."""
     db = _db()
@@ -307,14 +326,17 @@ def agents() -> List[Dict[str, Any]]:
 
 # ── Worker ────────────────────────────────────────────────────────────────────
 
+
 def process(*, max_jobs: int = 50) -> Dict[str, int]:
     """Process pending summarization jobs."""
     from .worker import process_jobs
+
     n = process_jobs(max_jobs=max_jobs)
     return {"jobs_processed": n}
 
 
 # ── Sync ─────────────────────────────────────────────────────────────────────
+
 
 def sync(
     *,
@@ -336,6 +358,7 @@ def sync(
 
     # 2. Import each
     from .ingest.importer import import_session as _import
+
     imported_total = 0
     skipped_total = 0
     errors = []
@@ -352,6 +375,7 @@ def sync(
     jobs_processed = 0
     if summarize and imported_total > 0:
         from .core.config import Config
+
         cfg = Config.load()
         key_err = cfg.check_api_key()
         if key_err:
@@ -359,6 +383,7 @@ def sync(
         else:
             cfg.inject_api_key()
             from .worker import process_jobs
+
             jobs_processed = process_jobs(max_jobs=max_jobs)
 
     # Collect projects that had new data
@@ -378,9 +403,11 @@ def sync(
 
 # ── Projects & Brief ────────────────────────────────────────────────────────
 
+
 def projects() -> List[Dict[str, Any]]:
     """List all known projects with brief status."""
     from .summarize.brief import list_projects
+
     return list_projects()
 
 
@@ -406,6 +433,7 @@ def brief(
         content = update_brief(workspace, update_session)
         if content:
             from .summarize.brief import brief_path
+
             return {
                 "workspace": workspace,
                 "path": str(brief_path(workspace)),
@@ -417,6 +445,7 @@ def brief(
     existing = read_brief(workspace)
     if existing and top_n is None:
         from .summarize.brief import brief_path
+
         return {
             "workspace": workspace,
             "path": str(brief_path(workspace)),
@@ -428,6 +457,7 @@ def brief(
     content = synthesize_brief(workspace, top_n=top_n or 15)
     if content:
         from .summarize.brief import brief_path
+
         return {
             "workspace": workspace,
             "path": str(brief_path(workspace)),
@@ -454,7 +484,9 @@ def brief_status(workspace: str) -> Dict[str, Any]:
         db = _db()
         sessions_list = db.list_sessions(workspace=workspace, limit=1)
         result["recommendation"] = "missing"
-        result["sessions_total"] = len(db.list_sessions(workspace=workspace, limit=1000))
+        result["sessions_total"] = len(
+            db.list_sessions(workspace=workspace, limit=1000)
+        )
         return result
 
     # Parse timestamp from footer
