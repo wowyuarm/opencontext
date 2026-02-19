@@ -86,6 +86,14 @@ class TestDetectFormat:
         ])
         assert detect_format(p) is None
 
+    def test_metadata_only_claude_file(self, tmp_path):
+        p = _write_jsonl(tmp_path / "meta_only.jsonl", [
+            {"type": "queue-operation", "operation": "drain"},
+            {"type": "file-history-snapshot", "snapshot": {}},
+            {"type": "system", "subtype": "init"},
+        ])
+        assert detect_format(p) == "claude"
+
     def test_empty_file(self, tmp_path):
         p = tmp_path / "empty.jsonl"
         p.write_text("")

@@ -73,6 +73,7 @@ def parse_session(session_file: Path, *, since_turn: int = 0) -> List[ParsedTurn
 
 def detect_format(session_file: Path) -> Optional[str]:
     """Auto-detect session file format by inspecting first few lines."""
+    saw_claude_marker = False
     try:
         with open(session_file, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
@@ -89,12 +90,15 @@ def detect_format(session_file: Path) -> Optional[str]:
                 # Claude Code: {type: "user"/"assistant", message: {...}}
                 if data.get("type") in ("user", "assistant") and "message" in data:
                     return "claude"
-                # Claude Code metadata types — skip and keep searching for user/assistant
-                if data.get("type") in ("file-history-snapshot", "queue-operation", "progress"):
+
+                # Claude Code metadata-only/incomplete sessions are still Claude files.
+                if data.get("type") in ("file-history-snapshot", "queue-operation", "progress", "system"):
+                    saw_claude_marker = True
                     continue
     except Exception:
         pass
-    return None
+
+    return "claude" if saw_claude_marker else None
 
 
 def extract_project_path(session_file: Path) -> Optional[str]:

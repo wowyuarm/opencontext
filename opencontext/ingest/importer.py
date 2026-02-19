@@ -41,6 +41,18 @@ def import_session(
     if not path.exists():
         return {"error": f"File not found: {session_file}"}
 
+    # Zero-byte session stubs are common for aborted starts; skip quietly.
+    try:
+        if path.stat().st_size == 0:
+            return {
+                "session_id": path.stem,
+                "turns_imported": 0,
+                "turns_skipped": 0,
+                "status": "skipped_empty",
+            }
+    except OSError:
+        pass
+
     session_type = detect_format(path)
     if not session_type:
         return {"error": f"Unknown session format: {session_file}"}
