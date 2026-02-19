@@ -1,7 +1,6 @@
 ---
 name: opencontext
-description: Project knowledge and context for any workspace the user has worked on. Use when: (1) user mentions a project or wants to work on one — load its brief, (2) starting a coding collaboration — understand the project before delegating, (3) user asks "what projects do I have" or "what's the status of X", (4) after completing work — update the brief with what was done, (5) first-time setup — guide user through OpenContext configuration. Requires the `oc` CLI.
-requires_bins: ["oc"]
+description: "Project knowledge and context for any workspace the user has worked on. Use when: (1) user mentions a project or wants to work on one — load its brief, (2) starting a coding collaboration — understand the project before delegating, (3) user asks \"what projects do I have\" or \"what's the status of X\", (4) after completing work — update the brief with what was done, (5) first-time setup — guide user through OpenContext configuration. Requires the `oc` CLI."
 ---
 
 # OpenContext

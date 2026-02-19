@@ -1,6 +1,6 @@
 # OpenContext
 
-Project Knowledge Management for AI Assistants.
+Project Knowledge Management for AI Assistants. Just let your ai assistant help you use opencontext, this project is for agent.
 
 OpenContext discovers and parses your Claude Code sessions, then synthesizes them into **Project Briefs** — auto-generated knowledge documents that capture what each project is, key decisions, current state, and recent progress.
 
@@ -11,11 +11,13 @@ Every time an AI assistant starts working with you, it knows nothing about your 
 ## Install
 
 ```bash
-# Global install (recommended, makes `oc` available everywhere)
-uv tool install -e ~/projects/opencontext
+git clone https://github.com/wowyuarm/opencontext
+cd opencontext
 
-# Or in a virtualenv
-cd ~/projects/opencontext
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate
+
 pip install -e .
 ```
 
